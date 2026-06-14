@@ -1,3 +1,64 @@
-controller_manager:
+/**/controller_manager:
   ros__parameters:
-    update_rate: 100  # Update rate in Hz
+    update_rate: 500  # Update rate in Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    torque_passthrough_controller:
+      type: forward_command_controller/ForwardCommandController
+
+    velocity_ramped_controller:
+      type: forward_command_controller/ForwardCommandController
+
+    velocity_passthrough_controller:
+      type: forward_command_controller/MultiInterfaceForwardCommandController
+
+    position_trajectory_controller:
+      type: forward_command_controller/ForwardCommandController
+      
+    position_filtered_controller:
+      type: forward_command_controller/MultiInterfaceForwardCommandController
+
+    position_passthrough_controller:
+      type: forward_command_controller/MultiInterfaceForwardCommandController
+
+/**/torque_passthrough_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)joint_1
+    interface_name: effort
+
+/**/velocity_ramped_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)joint_1
+    interface_name: velocity
+
+/**/velocity_passthrough_controller:
+  ros__parameters:
+    joint: $(var tf_prefix)joint_1
+    interface_names: 
+     - velocity
+     - effort
+
+/**/position_trajectory_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)joint_1
+    interface_name: position
+
+/**/position_filtered_controller:
+  ros__parameters:
+    joint: $(var tf_prefix)joint_1
+    interface_names: 
+     - position
+     - velocity
+
+/**/position_passthrough_controller:
+  ros__parameters:
+    joint: $(var tf_prefix)joint_1
+    interface_names: 
+     - position
+     - velocity
+     - effort

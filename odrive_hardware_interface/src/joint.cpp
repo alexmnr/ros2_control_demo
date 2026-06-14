@@ -74,19 +74,20 @@ namespace odrive_hardware_interface
   // --- wait till ready ---
   void ODriveHardwareInterface::Joint::wait_till_ready() {
     // Check if all joints are ready
-    while (1) {
+    for (int i = 0; i <= 5; i++) {
       Get_Torques_msg_t get_torques_msg;
       Get_Encoder_Estimates_msg_t get_encoder_estimages_msg;
       send(get_torques_msg, true);
       send(get_encoder_estimages_msg, true);
+      rclcpp::sleep_for(std::chrono::milliseconds(100));
       while (can_interface_->read_nonblocking()) {}
       if (odrive_error == 0 && position_state != 0) {
         position_command = position_state;
         ready = true;
         return;
       } 
-      rclcpp::sleep_for(std::chrono::milliseconds(500));
-      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[ACTIVATION] Waiting for Joint '%s' to be ready...", name.c_str());
+      rclcpp::sleep_for(std::chrono::milliseconds(100));
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[ACTIVATE] Waiting for Joint '%s' to be ready...", name.c_str());
     }
   }
 
@@ -94,7 +95,7 @@ namespace odrive_hardware_interface
   bool ODriveHardwareInterface::Joint::check_version() {
     Get_Version_msg_t msg;
     send(msg, true);
-    for (int i = 0; i <= 30; i++) {
+    for (int i = 0; i <= 5; i++) {
       while (can_interface_->read_nonblocking()); // repeat until CAN interface has no more messages
       if (hw_version.length() != 0 && fw_version.length() != 0) {
         RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[CONFIGURE] Found: Joint '%s' can-id '%d' with fw-version '%s' and hw-version '%s'", name.c_str(), can_id, fw_version.c_str(), hw_version.c_str());
@@ -157,7 +158,7 @@ namespace odrive_hardware_interface
     odrive_trajectory_done = msg.Trajectory_Done_Flag;
     if (odrive_error != 0) {
       ready = false;
-      RCLCPP_ERROR(rclcpp::get_logger("ODriveHardwareInterface"), "Joint '%s' with can-id '%d' has error '%d' and state '%d'", name.c_str(), can_id, odrive_error, odrive_state);
+      RCLCPP_ERROR(rclcpp::get_logger("ODriveHardwareInterface"), "Joint '%s' with can-id '%d' has error '%s' and state '%s'", name.c_str(), can_id, get_odrive_error_string(odrive_error).c_str(), get_odrive_state_string(odrive_state).c_str());
     }
   }
 
@@ -178,38 +179,6 @@ namespace odrive_hardware_interface
   void ODriveHardwareInterface::Joint::request_torques_feedback() {
     Get_Torques_msg_t get_torques_msg;
     send(get_torques_msg, true);
-  }
-
-  // --- write parameter ---
-  template <typename V>
-  void ODriveHardwareInterface::Joint::write_parameter(uint16_t endpoint_id, V value) {
-    struct can_frame frame;
-    frame.can_id = can_id << 5 | 0x04;
-    frame.can_dlc = 8;
-    can_set_signal_raw<uint8_t>(frame.data, 1, 0, 8, true);
-    can_set_signal_raw<uint16_t>(frame.data, endpoint_id, 8, 24, true);
-    can_set_signal_raw<uint8_t>(frame.data, 0, 24, 32, true);
-    if constexpr (std::is_same_v<V, uint8_t>) {
-      can_set_signal_raw<uint8_t>(frame.data, value, 32, 40, true);
-    } else if constexpr (std::is_same_v<V, uint16_t>) {
-      can_set_signal_raw<uint16_t>(frame.data, value, 32, 48, true);
-    } else if constexpr (std::is_same_v<V, uint32_t>) {
-      can_set_signal_raw<uint32_t>(frame.data, value, 32, 56, true);
-    } else if constexpr (std::is_same_v<V, int8_t>) {
-      can_set_signal_raw<int8_t>(frame.data, value, 32, 40, true);
-    } else if constexpr (std::is_same_v<V, int16_t>) {
-      can_set_signal_raw<int16_t>(frame.data, value, 32, 48, true);
-    } else if constexpr (std::is_same_v<V, int32_t>) {
-      can_set_signal_raw<int32_t>(frame.data, value, 32, 56, true);
-    } else if constexpr (std::is_same_v<V, bool>) {
-      can_set_signal_raw<bool>(frame.data, value, 32, 40, true);
-    } else if constexpr (std::is_same_v<V, float>) {
-      can_set_signal_raw<float>(frame.data, value, 32, 64, true);
-    } else {
-      RCLCPP_ERROR(rclcpp::get_logger("ODriveHardwareInterface"), "Unsupported type in write_parameter function");
-      return;
-    }
-    can_interface_->send_can_frame(frame);
   }
 
   // --- set motor limits ---
@@ -276,39 +245,13 @@ namespace odrive_hardware_interface
   // --- set mode ---
   void ODriveHardwareInterface::Joint::set_mode() {
     // IDLE
-    if ((int)mode == Modes::IDLE) {
+    if (mode == Modes::IDLE) {
       Set_Axis_State_msg_t set_axis_state_msg;
       set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_IDLE;
       send(set_axis_state_msg);
-    // POSITION FILTERED
-    } else if ((int)mode == Modes::POSITION_FILTERED) {
-      Set_Controller_Mode_msg_t set_controller_mode_msg;
-      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_POSITION_CONTROL;
-      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_POS_FILTER;
-      send(set_controller_mode_msg);
-      Set_Axis_State_msg_t set_axis_state_msg;
-      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
-      send(set_axis_state_msg);
-    // POSITION TRAJECOTRY
-    } else if ((int)mode == Modes::POSITION_TRAJECTORY) {
-      Set_Controller_Mode_msg_t set_controller_mode_msg;
-      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_POSITION_CONTROL;
-      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_TRAP_TRAJ;
-      send(set_controller_mode_msg);
-      Set_Axis_State_msg_t set_axis_state_msg;
-      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
-      send(set_axis_state_msg);
-    // VELOCITY RAMPED
-    } else if ((int)mode == Modes::VELOCITY_RAMPED) {
-      Set_Controller_Mode_msg_t set_controller_mode_msg;
-      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_VELOCITY_CONTROL;
-      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_VEL_RAMP;
-      send(set_controller_mode_msg);
-      Set_Axis_State_msg_t set_axis_state_msg;
-      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
-      send(set_axis_state_msg);
-    // TORQUE_CONTROL 
-    } else if ((int)mode == Modes::TORQUE_CONTROL) {
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' switched to mode: IDLE", name.c_str());
+    // TORQUE_PASSTHROUGH 
+    } else if (mode == Modes::TORQUE_PASSTHROUGH) {
       Set_Controller_Mode_msg_t set_controller_mode_msg;
       set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_TORQUE_CONTROL;
       set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_PASSTHROUGH;
@@ -316,9 +259,115 @@ namespace odrive_hardware_interface
       Set_Axis_State_msg_t set_axis_state_msg;
       set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
       send(set_axis_state_msg);
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' switched to mode: TORQUE_CONTROL", name.c_str());
+    // VELOCITY RAMPED
+    } else if (mode == Modes::VELOCITY_RAMPED) {
+      Set_Controller_Mode_msg_t set_controller_mode_msg;
+      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_VELOCITY_CONTROL;
+      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_VEL_RAMP;
+      send(set_controller_mode_msg);
+      Set_Axis_State_msg_t set_axis_state_msg;
+      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
+      send(set_axis_state_msg);
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' switched to mode: VELOCITY_RAMPED", name.c_str());
+    // VELOCITY PASSTHROUGH
+    } else if (mode == Modes::VELOCITY_PASSTHROUGH) {
+      Set_Controller_Mode_msg_t set_controller_mode_msg;
+      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_VELOCITY_CONTROL;
+      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_PASSTHROUGH;
+      send(set_controller_mode_msg);
+      Set_Axis_State_msg_t set_axis_state_msg;
+      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
+      send(set_axis_state_msg);
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' switched to mode: VELOCITY_PASSTHROUGH", name.c_str());
+    // POSITION TRAJECOTRY
+    } else if (mode == Modes::POSITION_TRAJECTORY) {
+      Set_Controller_Mode_msg_t set_controller_mode_msg;
+      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_POSITION_CONTROL;
+      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_TRAP_TRAJ;
+      send(set_controller_mode_msg);
+      Set_Axis_State_msg_t set_axis_state_msg;
+      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
+      send(set_axis_state_msg);
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' switched to mode: POSITION_TRAJECTORY", name.c_str());
+    // POSITION FILTERED
+    } else if (mode == Modes::POSITION_FILTERED) {
+      Set_Controller_Mode_msg_t set_controller_mode_msg;
+      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_POSITION_CONTROL;
+      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_POS_FILTER;
+      send(set_controller_mode_msg);
+      Set_Axis_State_msg_t set_axis_state_msg;
+      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
+      send(set_axis_state_msg);
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' switched to mode: POSITION_FILTERED", name.c_str());
+    // POSITION PASSTHROUGH
+    } else if (mode == Modes::POSITION_PASSTHROUGH) {
+      Set_Controller_Mode_msg_t set_controller_mode_msg;
+      set_controller_mode_msg.Control_Mode = ODriveControlMode::CONTROL_MODE_POSITION_CONTROL;
+      set_controller_mode_msg.Input_Mode = ODriveInputMode::INPUT_MODE_PASSTHROUGH;
+      send(set_controller_mode_msg);
+      Set_Axis_State_msg_t set_axis_state_msg;
+      set_axis_state_msg.Axis_Requested_State = ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL;
+      send(set_axis_state_msg);
+      RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' switched to mode: POSITION_PASSTHROUGH", name.c_str());
     // ELSE
     } else {
-      RCLCPP_FATAL(rclcpp::get_logger("ODriveHardwareInterface"), "Unrecognized mode: %d", mode);
+      RCLCPP_FATAL(rclcpp::get_logger("ODriveHardwareInterface"), "[MODE SWITCH] Joint '%s' received unrecognized mode: %d", name.c_str(), mode);
+    }
+  }
+
+  // --- get odrive state string ---
+  std::string ODriveHardwareInterface::Joint::get_odrive_state_string(uint8_t state) {
+    switch (state) {
+      case 0: return "UNDEFINED";
+      case 1: return "IDLE";
+      case 2: return "STARTUP_SEQUENCE";
+      case 3: return "FULL_CALIBRATION_SEQUENCE";
+      case 4: return "MOTOR_CALIBRATION";
+      case 6: return "ENCODER_INDEX_SEARCH";
+      case 7: return "ENCODER_OFFSET_CALIBRATION";
+      case 8: return "CLOSED_LOOP_CONTROL";
+      case 9: return "LOCKIN_SPIN";
+      case 10: return "ENCODER_DIR_FIND";
+      case 11: return "HOMING";
+      case 12: return "ENCODER_HALL_POLARITY_CALIBRATION";
+      case 13: return "ENCODER_HALL_PHASE_CALIBRATION";
+      case 14: return "ANTICOGGING_CALIBRATION";
+      default: return "UNKNOWN_STATE (" + std::to_string(state) + ")";
+    }
+  }
+
+  // --- get odrive error string ---
+  std::string ODriveHardwareInterface::Joint::get_odrive_error_string(uint32_t error) {
+    switch (error) {
+        case 0x00000000: return "ODRIVE_ERROR_NONE";
+        case 0x00000001: return "ODRIVE_ERROR_INITIALIZING";
+        case 0x00000002: return "ODRIVE_ERROR_SYSTEM_LEVEL";
+        case 0x00000004: return "ODRIVE_ERROR_TIMING_ERROR";
+        case 0x00000008: return "ODRIVE_ERROR_MISSING_ESTIMATE";
+        case 0x00000010: return "ODRIVE_ERROR_BAD_CONFIG";
+        case 0x00000020: return "ODRIVE_ERROR_DRV_FAULT";
+        case 0x00000040: return "ODRIVE_ERROR_MISSING_INPUT";
+        case 0x00000100: return "ODRIVE_ERROR_DC_BUS_OVER_VOLTAGE";
+        case 0x00000200: return "ODRIVE_ERROR_DC_BUS_UNDER_VOLTAGE";
+        case 0x00000400: return "ODRIVE_ERROR_DC_BUS_OVER_CURRENT";
+        case 0x00000800: return "ODRIVE_ERROR_DC_BUS_OVER_REGEN_CURRENT";
+        case 0x00001000: return "ODRIVE_ERROR_CURRENT_LIMIT_VIOLATION";
+        case 0x00002000: return "ODRIVE_ERROR_MOTOR_OVER_TEMP";
+        case 0x00004000: return "ODRIVE_ERROR_INVERTER_OVER_TEMP";
+        case 0x00008000: return "ODRIVE_ERROR_VELOCITY_LIMIT_VIOLATION";
+        case 0x00010000: return "ODRIVE_ERROR_POSITION_LIMIT_VIOLATION";
+        case 0x01000000: return "ODRIVE_ERROR_WATCHDOG_TIMER_EXPIRED";
+        case 0x02000000: return "ODRIVE_ERROR_ESTOP_REQUESTED";
+        case 0x04000000: return "ODRIVE_ERROR_SPINOUT_DETECTED";
+        case 0x08000000: return "ODRIVE_ERROR_BRAKE_RESISTOR_DISARMED";
+        case 0x10000000: return "ODRIVE_ERROR_THERMISTOR_DISCONNECTED";
+        case 0x40000000: return "ODRIVE_ERROR_CALIBRATION_ERROR";
+        default: {
+            std::stringstream ss;
+            ss << "UNKNOWN_ERROR_CODE (0x" << std::setfill('0') << std::setw(8) << std::hex << error << ")";
+            return ss.str();
+        }
     }
   }
 }  // namespace odrive_hardware_interface

@@ -67,7 +67,6 @@ namespace odrive_hardware_interface
   // --- on_activate ---
   hardware_interface::CallbackReturn ODriveHardwareInterface::on_activate(const rclcpp_lifecycle::State &) {
     // Set all motors to IDLE
-    RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[ACTIVATE] Changing mode to: IDLE");
     for (auto& joint : joints_) {
       joint.mode = Modes::IDLE;
       joint.set_mode();
@@ -83,6 +82,7 @@ namespace odrive_hardware_interface
 
   // --- on_deactivate ---
   hardware_interface::CallbackReturn ODriveHardwareInterface::on_deactivate(const rclcpp_lifecycle::State &) {
+    RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[DEACTIVATE] Deactivating all joints!");
     // Configure all axis
     for (auto& joint : joints_) {
       joint.mode = Modes::IDLE;
@@ -108,33 +108,156 @@ namespace odrive_hardware_interface
 
   // --- read ---
   hardware_interface::return_type ODriveHardwareInterface::read(const rclcpp::Time &, const rclcpp::Duration &) {
+    while (can_interface_.read_nonblocking()) {
+      // repeat until CAN interface has no more messages
+    }
+    // continue only if ready
+    for (auto &joint : joints_) {
+      if (!joint.ready) {
+        return hardware_interface::return_type::OK;
+      }
+    }
+
+    // Request Torques and Encoder Estimates
+    for (auto &joint : joints_) {
+      Get_Torques_msg_t get_torques_msg;
+      Get_Encoder_Estimates_msg_t get_encoder_estimages_msg;
+      joint.send(get_torques_msg, true);
+      joint.send(get_encoder_estimages_msg, true);
+    }
     return hardware_interface::return_type::OK;
   }
 
   // --- write ---
   hardware_interface::return_type ODriveHardwareInterface::write(const rclcpp::Time &, const rclcpp::Duration &) {
+    // continue only if ready
+    for (auto &joint : joints_) {
+      if (!joint.ready) {
+        return hardware_interface::return_type::OK;
+      }
+    }
+    // send command_messages
+    for (auto &joint : joints_) {
+      // TORQUE_PASSTHROUGH
+      if (joint.mode == Modes::TORQUE_PASSTHROUGH) {
+        Set_Input_Torque_msg_t msg;
+        msg.Input_Torque = joint.effort_command;
+        joint.send(msg);
+      // VELOCITY RAMPED
+      } else if (joint.mode == Modes::VELOCITY_RAMPED) {
+        Set_Input_Vel_msg_t msg;
+        msg.Input_Vel = joint.velocity_command / (2 * M_PI);
+        msg.Input_Torque_FF = 0.0;
+        joint.send(msg);
+      // VELOCITY PASSTHROUGH
+      } else if (joint.mode == Modes::VELOCITY_PASSTHROUGH) {
+        Set_Input_Vel_msg_t msg;
+        msg.Input_Vel = joint.velocity_command / (2 * M_PI);
+        msg.Input_Torque_FF = joint.effort_command;
+        joint.send(msg);
+      // POSITION POSITION_TRAJECTORY
+      } else if ((int)joint.mode == Modes::POSITION_TRAJECTORY) {
+        Set_Input_Pos_msg_t msg;
+        msg.Input_Pos = joint.position_command / (2 * M_PI);
+        msg.Vel_FF = 0.0;
+        msg.Torque_FF = 0.0;
+        joint.send(msg);
+      // POSITION FILTERED
+      } else if ((int)joint.mode == Modes::POSITION_FILTERED) {
+        Set_Input_Pos_msg_t msg;
+        msg.Input_Pos = joint.position_command / (2 * M_PI);
+        msg.Vel_FF = joint.velocity_command * joint.input_vel_scale;
+        msg.Torque_FF = 0.0;
+        joint.send(msg);
+      // POSITION PASSTHROUGH
+      } else if ((int)joint.mode == Modes::POSITION_PASSTHROUGH) {
+        Set_Input_Pos_msg_t msg;
+        msg.Input_Pos = joint.position_command / (2 * M_PI);
+        msg.Vel_FF = joint.velocity_command * joint.input_vel_scale;
+        msg.Torque_FF = joint.effort_command * joint.input_torque_scale;
+        joint.send(msg);
+      }
+    }
     return hardware_interface::return_type::OK;
   }
 
   // --- export_state_interfaces ---
   std::vector<hardware_interface::StateInterface> ODriveHardwareInterface::export_state_interfaces() {
     std::vector<hardware_interface::StateInterface> state_interfaces;
+    for (auto &joint : joints_) {
+      state_interfaces.emplace_back(joint.name, "position", &joint.position_state);
+      state_interfaces.emplace_back(joint.name, "velocity", &joint.velocity_state);
+      state_interfaces.emplace_back(joint.name, "effort",   &joint.effort_state);
+    }
     return state_interfaces;
   }
 
   // --- export_command_interfaces ---
   std::vector<hardware_interface::CommandInterface> ODriveHardwareInterface::export_command_interfaces() {
     std::vector<hardware_interface::CommandInterface> command_interfaces;
+    for (auto &joint : joints_) {
+      command_interfaces.emplace_back(joint.name, "position", &joint.position_command);
+      command_interfaces.emplace_back(joint.name, "velocity", &joint.velocity_command);
+      command_interfaces.emplace_back(joint.name, "effort",   &joint.effort_command);
+    }
     return command_interfaces;
   }
 
   // --- prepare_command_mode_switch ---
   hardware_interface::return_type ODriveHardwareInterface::prepare_command_mode_switch(const std::vector<std::string> & /*start_interfaces*/, const std::vector<std::string> & /*stop_interfaces*/) {
+    // Because any invalid interface combination gracefully maps to Modes::IDLE,
     return hardware_interface::return_type::OK;
   }
 
   // --- perform_command_mode_switch ---
-  hardware_interface::return_type ODriveHardwareInterface::perform_command_mode_switch(const std::vector<std::string> & /*start_interfaces*/, const std::vector<std::string> & /*stop_interfaces*/) {
+  hardware_interface::return_type ODriveHardwareInterface::perform_command_mode_switch(
+    const std::vector<std::string> & start_interfaces, 
+    const std::vector<std::string> & stop_interfaces) 
+  {
+    // Process stopping interfaces
+    for (const auto & key : stop_interfaces) {
+      for (auto & joint : joints_) {
+        if (key == joint.name + "/position") joint.is_position_active = false;
+        if (key == joint.name + "/velocity") joint.is_velocity_active = false;
+        if (key == joint.name + "/effort")   joint.is_effort_active = false;
+      }
+    }
+    // Process starting interfaces
+    for (const auto & key : start_interfaces) {
+      for (auto & joint : joints_) {
+        if (key == joint.name + "/position") joint.is_position_active = true;
+        if (key == joint.name + "/velocity") joint.is_velocity_active = true;
+        if (key == joint.name + "/effort")   joint.is_effort_active = true;
+      }
+    }
+    // Determine the required mode and update hardware if it changed
+    for (auto & joint : joints_) {
+      int new_mode = Modes::IDLE;
+      if (joint.is_effort_active && !joint.is_velocity_active && !joint.is_position_active) {
+        new_mode = Modes::TORQUE_PASSTHROUGH;
+      } 
+      else if (!joint.is_effort_active && joint.is_velocity_active && !joint.is_position_active) {
+        new_mode = Modes::VELOCITY_RAMPED;
+      } 
+      else if (joint.is_effort_active && joint.is_velocity_active && !joint.is_position_active) {
+        new_mode = Modes::VELOCITY_PASSTHROUGH;
+      } 
+      else if (!joint.is_effort_active && !joint.is_velocity_active && joint.is_position_active) {
+        new_mode = Modes::POSITION_TRAJECTORY;
+      } 
+      else if (!joint.is_effort_active && joint.is_velocity_active && joint.is_position_active) {
+        new_mode = Modes::POSITION_FILTERED;
+      } 
+      else if (joint.is_effort_active && joint.is_velocity_active && joint.is_position_active) {
+        new_mode = Modes::POSITION_PASSTHROUGH;
+      } 
+      // None or any other combination -> IDLE 
+      // Apply the mode switch to the hardware if a change is needed
+      if (joint.mode != new_mode) {
+        joint.mode = new_mode;
+        joint.set_mode();
+      }
+    }
     return hardware_interface::return_type::OK;
   }
 

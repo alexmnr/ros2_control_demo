@@ -66,7 +66,7 @@ def launch_setup(context):
         arguments=["--ros-args", "--log-level", log_level],
         parameters=[
             robot_description,
-            {'publish_frequency': 1000.0}
+            {'publish_frequency': 500.0}
             ]
         ))
 
@@ -81,17 +81,35 @@ def launch_setup(context):
         output="screen",
         ))
 
-    nodes.append(Node(
+    def controller_spawner(controllers, active=True):
+        inactive_flags = ["--inactive"] if not active else []
+        return Node(
             package="controller_manager",
             executable="spawner",
             namespace=ns,
             arguments=[
-                "joint_state_broadcaster",
-                "--ros-args", 
-                "--log-level", 
-                log_level,
+                "--controller-manager-timeout",
+                "10",
             ]
-        ))
+            + inactive_flags
+            + controllers
+            + ["--ros-args", "--log-level", log_level],
+        )
+
+    controllers_active = [
+        "joint_state_broadcaster",
+    ]
+    controllers_inactive = [
+        "torque_passthrough_controller",
+        "velocity_ramped_controller",
+        "velocity_passthrough_controller",
+        "position_trajectory_controller",
+        "position_filtered_controller",
+        "position_passthrough_controller",
+    ]
+
+    nodes.append(controller_spawner(controllers_active, True))
+    nodes.append(controller_spawner(controllers_inactive, False))
 
     return nodes
 

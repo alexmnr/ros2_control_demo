@@ -15,12 +15,14 @@ namespace odrive_hardware_interface
 {
   class ODriveHardwareInterface : public hardware_interface::SystemInterface
   {
-    enum Modes {
-      IDLE,
-      POSITION_FILTERED,
-      POSITION_TRAJECTORY,
-      VELOCITY_RAMPED,
-      TORQUE_CONTROL,
+    enum Modes {               // Command Interfaces
+      IDLE,                    // None or any other combination
+      TORQUE_PASSTHROUGH,      // Effort
+      VELOCITY_RAMPED,         // Velocity
+      VELOCITY_PASSTHROUGH,    // Velocity & Effort
+      POSITION_TRAJECTORY,     // Position
+      POSITION_FILTERED,       // Position & Velocity
+      POSITION_PASSTHROUGH,    // Position & Velocity & Effort
     };
     struct Joint {
       // Constructor
@@ -48,11 +50,17 @@ namespace odrive_hardware_interface
       double velocity_state;
       double effort_state;
       double effort_target;
+      // Active command interface trackers
+      bool is_position_active = false;
+      bool is_velocity_active = false;
+      bool is_effort_active = false;
       // odrive parameters
       uint32_t odrive_error = 1;
       uint8_t odrive_state = 0;
       uint8_t odrive_procedure_result = 0;
       uint8_t odrive_trajectory_done = 0;
+      uint32_t input_vel_scale = 1000;
+      uint32_t input_torque_scale = 1000;
       std::string fw_version = "";
       std::string hw_version = "";
       int mode = 0;
@@ -67,6 +75,8 @@ namespace odrive_hardware_interface
       void set_trajectory_limits();
       void set_gains();
       void set_mode();
+      std::string get_odrive_error_string(uint32_t error);
+      std::string get_odrive_state_string(uint8_t state);
       // CAN
       SocketCanIntf* can_interface_;
       void on_can_msg(const can_frame& frame);
@@ -74,9 +84,6 @@ namespace odrive_hardware_interface
       void on_version_msg(const can_frame& frame);
       void on_encoder_feedback_msg(const can_frame& frame);
       void on_torque_feedback_msg(const can_frame& frame);
-      // write parameter template
-      template <typename V>
-        void write_parameter(uint16_t endpoint_id, V value);
       // CAN send template
       template <typename T>
         void send(const T& msg, bool rtr = false) {
