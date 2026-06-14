@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<robot name="robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="tf_prefix" default="" />
+  <xacro:arg name="use_mock_hardware" default="false" />
+  <xacro:arg name="can_interface" default="can0" />
+
+  <link name="$(arg tf_prefix)base_link"/>
+  <link name="$(arg tf_prefix)child_link"/>
+  <joint name="$(arg tf_prefix)joint_1" type="continuous">
+    <parent link="$(arg tf_prefix)base_link"/>
+    <child link="$(arg tf_prefix)child_link"/>
+  </joint>
+
+  <ros2_control name="robot_ros2_control" type="system">
+    <hardware>
+      <xacro:if value="$(arg use_mock_hardware)">
+        <plugin>mock_components/GenericSystem</plugin>
+        <param name="calculate_dynamics">true</param>
+      </xacro:if>
+      <xacro:unless value="$(arg use_mock_hardware)">
+        <plugin>odrive_hardware_interface/ODriveHardwareInterface</plugin>
+        <param name="can_interface">$(arg can_interface)</param>
+      </xacro:unless>
+    </hardware>
+
+    <joint name="$(arg tf_prefix)joint_1">
+      <!-- Required actuator parameters -->
+      <param name="can_id">0</param>
+      <!-- Optional actuator parameters -->
+      <param name="motor_velocity_limit">10.0</param>
+      <param name="motor_current_limit">15.0</param>
+      <param name="position_p_gain">30.0</param>
+      <param name="velocity_p_gain">0.2</param>
+      <param name="velocity_i_gain">4.0</param>
+      <param name="input_filter_bandwidth">1000.0</param>
+      <param name="trajectory_vel_limit">10.0</param>
+      <param name="trajectory_accel_limit">8.0</param>
+      <param name="trajectory_decel_limit">8.0</param>
+      <param name="trajectory_inertia">0.0</param>
+      <!-- command interfaces -->
+      <command_interface name="position" data_type="double"/>
+      <command_interface name="velocity" data_type="double"/>
+      <command_interface name="effort" data_type="double"/>
+      <!-- state interfaces -->
+      <state_interface name="position" data_type="double"/>
+      <state_interface name="velocity" data_type="double"/>
+      <state_interface name="effort" data_type="double"/>
+    </joint>
+
+    <transmission name="$(arg tf_prefix)transmission_1">
+      <plugin>transmission_interface/SimpleTransmission</plugin>
+      <joint name="$(arg tf_prefix)joint_1" role="joint1">
+        <mechanical_reduction>10.0</mechanical_reduction>
+        <offset>0.0</offset>
+      </joint>
+      <actuator name="$(arg tf_prefix)actuator_1" role="actuator1"/>
+    </transmission>
+
+  </ros2_control>
+</robot>
