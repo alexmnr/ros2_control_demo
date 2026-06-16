@@ -132,45 +132,7 @@ namespace odrive_hardware_interface
     }
     // send command_messages
     for (auto &joint : joints_) {
-      // TORQUE_PASSTHROUGH
-      if (joint.mode == Modes::TORQUE_PASSTHROUGH) {
-        Set_Input_Torque_msg_t msg;
-        msg.Input_Torque = joint.effort_command;
-        joint.send(msg);
-      // VELOCITY RAMPED
-      } else if (joint.mode == Modes::VELOCITY_RAMPED) {
-        Set_Input_Vel_msg_t msg;
-        msg.Input_Vel = joint.velocity_command / (2 * M_PI);
-        msg.Input_Torque_FF = 0.0;
-        joint.send(msg);
-      // VELOCITY PASSTHROUGH
-      } else if (joint.mode == Modes::VELOCITY_PASSTHROUGH) {
-        Set_Input_Vel_msg_t msg;
-        msg.Input_Vel = joint.velocity_command / (2 * M_PI);
-        msg.Input_Torque_FF = joint.effort_command;
-        joint.send(msg);
-      // POSITION POSITION_TRAJECTORY
-      } else if ((int)joint.mode == Modes::POSITION_TRAJECTORY) {
-        Set_Input_Pos_msg_t msg;
-        msg.Input_Pos = joint.position_command / (2 * M_PI);
-        msg.Vel_FF = 0.0;
-        msg.Torque_FF = 0.0;
-        joint.send(msg);
-      // POSITION FILTERED
-      } else if ((int)joint.mode == Modes::POSITION_FILTERED) {
-        Set_Input_Pos_msg_t msg;
-        msg.Input_Pos = joint.position_command / (2 * M_PI);
-        msg.Vel_FF = joint.velocity_command * joint.input_vel_scale;
-        msg.Torque_FF = 0.0;
-        joint.send(msg);
-      // POSITION PASSTHROUGH
-      } else if ((int)joint.mode == Modes::POSITION_PASSTHROUGH) {
-        Set_Input_Pos_msg_t msg;
-        msg.Input_Pos = joint.position_command / (2 * M_PI);
-        msg.Vel_FF = joint.velocity_command * joint.input_vel_scale;
-        msg.Torque_FF = joint.effort_command * joint.input_torque_scale;
-        joint.send(msg);
-      }
+      joint.send_commands();
     }
     return hardware_interface::return_type::OK;
   }

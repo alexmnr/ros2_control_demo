@@ -71,6 +71,49 @@ namespace odrive_hardware_interface
     }
   }
 
+  // --- send commands ---
+  void ODriveHardwareInterface::Joint::send_commands() {
+    // TORQUE_PASSTHROUGH
+    if (mode == Modes::TORQUE_PASSTHROUGH) {
+      Set_Input_Torque_msg_t msg;
+      msg.Input_Torque = effort_command;
+      send(msg);
+      // VELOCITY RAMPED
+    } else if (mode == Modes::VELOCITY_RAMPED) {
+      Set_Input_Vel_msg_t msg;
+      msg.Input_Vel = velocity_command / (2 * M_PI);
+      msg.Input_Torque_FF = 0.0;
+      send(msg);
+      // VELOCITY PASSTHROUGH
+    } else if (mode == Modes::VELOCITY_PASSTHROUGH) {
+      Set_Input_Vel_msg_t msg;
+      msg.Input_Vel = velocity_command / (2 * M_PI);
+      msg.Input_Torque_FF = effort_command;
+      send(msg);
+      // POSITION POSITION_TRAJECTORY
+    } else if ((int)mode == Modes::POSITION_TRAJECTORY) {
+      Set_Input_Pos_msg_t msg;
+      msg.Input_Pos = position_command / (2 * M_PI);
+      msg.Vel_FF = 0.0;
+      msg.Torque_FF = 0.0;
+      send(msg);
+      // POSITION FILTERED
+    } else if ((int)mode == Modes::POSITION_FILTERED) {
+      Set_Input_Pos_msg_t msg;
+      msg.Input_Pos = position_command / (2 * M_PI);
+      msg.Vel_FF = velocity_command * input_vel_scale;
+      msg.Torque_FF = 0.0;
+      send(msg);
+      // POSITION PASSTHROUGH
+    } else if ((int)mode == Modes::POSITION_PASSTHROUGH) {
+      Set_Input_Pos_msg_t msg;
+      msg.Input_Pos = position_command / (2 * M_PI);
+      msg.Vel_FF = velocity_command * input_vel_scale;
+      msg.Torque_FF = effort_command * input_torque_scale;
+      send(msg);
+    }
+  }
+
   // --- wait till ready ---
   void ODriveHardwareInterface::Joint::wait_till_ready() {
     // Check if all joints are ready
