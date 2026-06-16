@@ -4,7 +4,7 @@ using config_type = controller_interface::interface_configuration_type;
 
 namespace odrive_pid_controller
 {
-  // --- on_init ---
+  // --- on init ---
   controller_interface::CallbackReturn ODrivePidController::on_init() {
     try {
       param_listener = std::make_shared<ParamListener>(get_node());
@@ -16,7 +16,7 @@ namespace odrive_pid_controller
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
-  // --- on_configure ---
+  // --- on configure ---
   controller_interface::CallbackReturn ODrivePidController::on_configure(const rclcpp_lifecycle::State &) {
     // Loop through joints
     for (const auto & [joint_name, joint_gains] : params.gains.joints_map) {
@@ -33,7 +33,7 @@ namespace odrive_pid_controller
     return CallbackReturn::SUCCESS;
   }
 
-  ////////////////////// on_activate /////////////////////////
+  // --- on activate ---
   controller_interface::CallbackReturn ODrivePidController::on_activate(const rclcpp_lifecycle::State &) {
     // Loop through joints
     for (auto & joint : joints) {
@@ -59,28 +59,10 @@ namespace odrive_pid_controller
     return CallbackReturn::SUCCESS;
   }
 
-  ////////////////////// update /////////////////////////
+  // --- update ---
   controller_interface::return_type ODrivePidController::update(const rclcpp::Time & /*time*/, const rclcpp::Duration & period){
     // Update references from latest msg
-    auto reference_op = rt_buffer.try_get();
-    if (reference_op.has_value())
-    {
-      MultiDOFCommand reference_msg = reference_op.value();
-      int i = 0;
-      for (std::string dof_names : reference_msg.dof_names) {
-        // search for joint with same name
-        auto it = std::find_if(joints.begin(), joints.end(), [&](const Joint& joint) {
-            return joint.name == dof_names;
-            });
-        // Check if the joint was found
-        if (it != joints.end()) {
-          it->position_reference = reference_msg.values[i];
-        } else {
-          RCLCPP_WARN(rclcpp::get_logger("ODrivePidController"), "Joint of name '%s' not recognized!", dof_names.c_str());
-        }
-        i++;
-      }
-    }
+    get_latest_references();
     // loop through joints
     for (auto& joint : joints) {
       // get current states from harware
@@ -108,12 +90,12 @@ namespace odrive_pid_controller
     return controller_interface::return_type::OK;
   }
 
-  ////////////////////// on_deactivate /////////////////////////
+  // --- on deactivate ---
   controller_interface::CallbackReturn ODrivePidController::on_deactivate(const rclcpp_lifecycle::State &) {
     return CallbackReturn::SUCCESS;
   }
 
-  ////////////////////// command_interface_configuration /////////////////////////
+  // --- command interface configuration ---
   controller_interface::InterfaceConfiguration ODrivePidController::command_interface_configuration() const {
     controller_interface::InterfaceConfiguration command_interfaces_config;
     command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
@@ -125,7 +107,7 @@ namespace odrive_pid_controller
     return command_interfaces_config;
   }
 
-  ////////////////////// state_interface_configuration /////////////////////////
+  // --- state interface configuration ---
   controller_interface::InterfaceConfiguration ODrivePidController::state_interface_configuration() const {
     controller_interface::InterfaceConfiguration state_interfaces_config;
     state_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
@@ -136,6 +118,29 @@ namespace odrive_pid_controller
     }
     state_interfaces_config.names = names_;
     return state_interfaces_config;
+  }
+
+  // --- get latest references ---
+  void ODrivePidController::get_latest_references(){
+    auto reference_op = rt_buffer.try_get();
+    if (reference_op.has_value())
+    {
+      MultiDOFCommand reference_msg = reference_op.value();
+      int i = 0;
+      for (std::string dof_names : reference_msg.dof_names) {
+        // search for joint with same name
+        auto it = std::find_if(joints.begin(), joints.end(), [&](const Joint& joint) {
+            return joint.name == dof_names;
+            });
+        // Check if the joint was found
+        if (it != joints.end()) {
+          it->position_reference = reference_msg.values[i];
+        } else {
+          RCLCPP_WARN(rclcpp::get_logger("ODrivePidController"), "Joint of name '%s' not recognized!", dof_names.c_str());
+        }
+        i++;
+      }
+    }
   }
 }  // namespace odrive_pid_controller
 

@@ -45,6 +45,8 @@ protected:
   // Listener
   realtime_tools::RealtimeThreadSafeBox<MultiDOFCommand> rt_buffer;
   rclcpp::Subscription<MultiDOFCommand>::SharedPtr joints_cmd_sub;
+  // helper functions
+  void get_latest_references();
 };
 
 }  // namespace odrive_pid_controller
