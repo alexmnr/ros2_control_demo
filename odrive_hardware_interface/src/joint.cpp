@@ -72,6 +72,35 @@ namespace odrive_hardware_interface
   }
 
   // --- send commands ---
+  void ODriveHardwareInterface::Joint::switch_mode_if_necessary() {
+    int new_mode = Modes::IDLE;
+    if (is_effort_active && !is_velocity_active && !is_position_active) {
+      new_mode = Modes::TORQUE_PASSTHROUGH;
+    } 
+    else if (!is_effort_active && is_velocity_active && !is_position_active) {
+      new_mode = Modes::VELOCITY_RAMPED;
+    } 
+    else if (is_effort_active && is_velocity_active && !is_position_active) {
+      new_mode = Modes::VELOCITY_PASSTHROUGH;
+    } 
+    else if (!is_effort_active && !is_velocity_active && is_position_active) {
+      new_mode = Modes::POSITION_TRAJECTORY;
+    } 
+    else if (!is_effort_active && is_velocity_active && is_position_active) {
+      new_mode = Modes::POSITION_FILTERED;
+    } 
+    else if (is_effort_active && is_velocity_active && is_position_active) {
+      new_mode = Modes::POSITION_PASSTHROUGH;
+    } 
+    // None or any other combination -> IDLE 
+    // Apply the mode switch to the hardware if a change is needed
+    if (mode != new_mode) {
+      mode = new_mode;
+      set_mode();
+    }
+  }
+
+  // --- send commands ---
   void ODriveHardwareInterface::Joint::send_commands() {
     // TORQUE_PASSTHROUGH
     if (mode == Modes::TORQUE_PASSTHROUGH) {

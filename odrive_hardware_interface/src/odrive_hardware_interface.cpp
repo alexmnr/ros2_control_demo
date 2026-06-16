@@ -188,31 +188,7 @@ namespace odrive_hardware_interface
     }
     // Determine the required mode and update hardware if it changed
     for (auto & joint : joints_) {
-      int new_mode = Modes::IDLE;
-      if (joint.is_effort_active && !joint.is_velocity_active && !joint.is_position_active) {
-        new_mode = Modes::TORQUE_PASSTHROUGH;
-      } 
-      else if (!joint.is_effort_active && joint.is_velocity_active && !joint.is_position_active) {
-        new_mode = Modes::VELOCITY_RAMPED;
-      } 
-      else if (joint.is_effort_active && joint.is_velocity_active && !joint.is_position_active) {
-        new_mode = Modes::VELOCITY_PASSTHROUGH;
-      } 
-      else if (!joint.is_effort_active && !joint.is_velocity_active && joint.is_position_active) {
-        new_mode = Modes::POSITION_TRAJECTORY;
-      } 
-      else if (!joint.is_effort_active && joint.is_velocity_active && joint.is_position_active) {
-        new_mode = Modes::POSITION_FILTERED;
-      } 
-      else if (joint.is_effort_active && joint.is_velocity_active && joint.is_position_active) {
-        new_mode = Modes::POSITION_PASSTHROUGH;
-      } 
-      // None or any other combination -> IDLE 
-      // Apply the mode switch to the hardware if a change is needed
-      if (joint.mode != new_mode) {
-        joint.mode = new_mode;
-        joint.set_mode();
-      }
+      joint.switch_mode_if_necessary();
     }
     return hardware_interface::return_type::OK;
   }

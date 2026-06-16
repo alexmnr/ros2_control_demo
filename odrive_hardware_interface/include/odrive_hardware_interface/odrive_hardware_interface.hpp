@@ -67,6 +67,7 @@ namespace odrive_hardware_interface
       bool ready = false;
       // Joint functions
       void send_commands();
+      void switch_mode_if_necessary();
       void wait_till_ready();
       bool check_version();
       void clear_error();
