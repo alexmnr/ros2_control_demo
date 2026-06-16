@@ -30,6 +30,7 @@ generate_parameter_library(odrive_pid_controller_parameters src/odrive_pid_contr
 # add controller library
 add_library(${PROJECT_NAME} SHARED
   src/odrive_pid_controller.cpp
+  src/joint.cpp
 )
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 target_include_directories(${PROJECT_NAME} PUBLIC include)

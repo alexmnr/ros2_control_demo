@@ -4,191 +4,139 @@ using config_type = controller_interface::interface_configuration_type;
 
 namespace odrive_pid_controller
 {
-ODrivePidController::ODrivePidController() : controller_interface::ControllerInterface() {}
-
-////////////////////// on_init /////////////////////////
-controller_interface::CallbackReturn ODrivePidController::on_init() {
-  try {
-    param_listener = std::make_shared<ParamListener>(get_node());
-    params = param_listener->get_params();
-  } catch (const std::exception & e) {
-    RCLCPP_ERROR(rclcpp::get_logger("ODrivePidController"), "[INIT] Exception thrown when reading parameters: %s", e.what());
-    return controller_interface::CallbackReturn::ERROR;
-  }
-  return controller_interface::CallbackReturn::SUCCESS;
-}
-
-////////////////////// on_configure /////////////////////////
-controller_interface::CallbackReturn ODrivePidController::on_configure(const rclcpp_lifecycle::State &) {
-  for (size_t i = 0; i < params.joints.size(); ++i)
-  {
-    ODrivePidController::Joint joint;
-    joint.name = params.joints[i];
-    joint.id = i;
-    control_toolbox::AntiWindupStrategy anti_windup_strategy_;
-    anti_windup_strategy_.set_type("none");
+  // --- on_init ---
+  controller_interface::CallbackReturn ODrivePidController::on_init() {
     try {
-      anti_windup_strategy_.validate();
+      param_listener = std::make_shared<ParamListener>(get_node());
+      params = param_listener->get_params();
     } catch (const std::exception & e) {
-      RCLCPP_ERROR(rclcpp::get_logger("ODrivePidController"), "[CONFIGURE] Invalid antiwindup strategy:: %s", e.what());
-      return CallbackReturn::ERROR;
+      RCLCPP_ERROR(rclcpp::get_logger("ODrivePidController"), "[INIT] Exception thrown when reading parameters: %s", e.what());
+      return controller_interface::CallbackReturn::ERROR;
     }
-    joint.position_pid = std::make_shared<control_toolbox::Pid>(
-        params.gains.joints_map[joint.name].position_p / (2 * M_PI),
-        params.gains.joints_map[joint.name].position_i / (2 * M_PI),
-        params.gains.joints_map[joint.name].position_d / (2 * M_PI),
-        params.gains.joints_map[joint.name].position_output_max / (2 * M_PI),
-        params.gains.joints_map[joint.name].position_output_min / (2 * M_PI),
-        anti_windup_strategy_
-        );
-    joint.velocity_pid = std::make_shared<control_toolbox::Pid>(
-        params.gains.joints_map[joint.name].velocity_p / (2 * M_PI),
-        params.gains.joints_map[joint.name].velocity_i / (2 * M_PI),
-        params.gains.joints_map[joint.name].velocity_d / (2 * M_PI),
-        params.gains.joints_map[joint.name].velocity_output_max / (2 * M_PI),
-        params.gains.joints_map[joint.name].velocity_output_min / (2 * M_PI),
-        anti_windup_strategy_
-        );
-    joints.push_back(joint);
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM] Creating Joint '%s': ", joint.name.c_str());
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM]   id: %d", joint.id);
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM]   position-p-gain: %.3f", params.gains.joints_map[joint.name].position_p);
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM]   position-i-gain: %.3f", params.gains.joints_map[joint.name].position_i);
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM]   position-d-gain: %.3f", params.gains.joints_map[joint.name].position_d);
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM]   velocity-p-gain: %.3f", params.gains.joints_map[joint.name].velocity_p);
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM]   velocity-i-gain: %.3f", params.gains.joints_map[joint.name].velocity_i);
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[PARAM]   velocity-d-gain: %.3f", params.gains.joints_map[joint.name].velocity_d);
+    return controller_interface::CallbackReturn::SUCCESS;
   }
 
-  joints_cmd_sub = this->get_node()->create_subscription<CommandType>("odrive_pid_controller/command", rclcpp::SystemDefaultsQoS(),
-    [this](const CommandType::SharedPtr msg) {
-      rt_buffer.set(*msg);
-    });
-
-  return CallbackReturn::SUCCESS;
-}
-
-
-////////////////////// on_activate /////////////////////////
-controller_interface::CallbackReturn ODrivePidController::on_activate(const rclcpp_lifecycle::State &) {
-  // get joint states
-  get_joint_states();
-  for (auto& joint : joints) {
-    joint.position_reference = joint.position_state;
-    RCLCPP_INFO(rclcpp::get_logger("ODrivePidController"), "[CONFIG] Succesfully activated Joint '%s'", joint.name.c_str());
-  }
-  return CallbackReturn::SUCCESS;
-}
-
-////////////////////// update /////////////////////////
-controller_interface::return_type ODrivePidController::update(const rclcpp::Time & /*time*/, const rclcpp::Duration & period){
-  // get joint states
-  get_joint_states();
-  // // get joint reference
-  get_joint_references();
-
-  // update pid loop
-  for (auto& joint : joints) {
-    // position pid
-    if (std::isnan(joint.position_reference) || std::isnan(joint.position_state)) {continue;}
-    double position_error = joint.position_reference - joint.position_state;
-    double temp_output = joint.position_pid->compute_command(position_error, period);
-    // velocity pid
-    if (std::isnan(joint.velocity_state)) {continue;}
-    double velocity_error = temp_output - joint.velocity_state;
-    joint.effort_command = joint.velocity_pid->compute_command(velocity_error, period);
-    // write effort value
-    if (!command_interfaces_[joint.id].set_value(joint.effort_command)) {
-      RCLCPP_WARN(rclcpp::get_logger("ODrivePidController"), "Failed to set effort command interface value for joint '%s'", joint.name.c_str());
+  // --- on_configure ---
+  controller_interface::CallbackReturn ODrivePidController::on_configure(const rclcpp_lifecycle::State &) {
+    // Loop through joints
+    for (const auto & [joint_name, joint_gains] : params.gains.joints_map) {
+      // Create Joint object
+      joints.emplace_back(joint_name, joint_gains);
+      RCLCPP_ERROR(rclcpp::get_logger("ODrivePidController"), "[CONFIGURE] Create Joint '%s'", joint_name.c_str());
     }
+
+    // Create listener
+    joints_cmd_sub = this->get_node()->create_subscription<MultiDOFCommand>("odrive_pid_controller/reference", rclcpp::SystemDefaultsQoS(),
+        [this](const MultiDOFCommand::SharedPtr msg) {
+        rt_buffer.set(*msg);
+        });
+    return CallbackReturn::SUCCESS;
   }
 
-  return controller_interface::return_type::OK;
-}
-
-////////////////////// on_deactivate /////////////////////////
-controller_interface::CallbackReturn ODrivePidController::on_deactivate(const rclcpp_lifecycle::State &) {
-  return CallbackReturn::SUCCESS;
-}
-
-////////////////////// command_interface_configuration /////////////////////////
-controller_interface::InterfaceConfiguration ODrivePidController::command_interface_configuration() const {
-
-  controller_interface::InterfaceConfiguration command_interfaces_config;
-  command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-  std::vector<std::string> names_;
-  for (const auto& joint : joints) {
-    names_.push_back(joint.name + "/effort");
-  }
-  command_interfaces_config.names = names_;
-  return command_interfaces_config;
-}
-
-////////////////////// state_interface_configuration /////////////////////////
-controller_interface::InterfaceConfiguration ODrivePidController::state_interface_configuration() const {
-  controller_interface::InterfaceConfiguration state_interfaces_config;
-  state_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-  std::vector<std::string> names_;
-  for (const auto& joint : joints) {
-    names_.push_back(joint.name + "/position");
-    names_.push_back(joint.name + "/velocity");
-    names_.push_back(joint.name + "/effort");
-  }
-  state_interfaces_config.names = names_;
-  return state_interfaces_config;
-}
-
-////////////////////// helper functions /////////////////////////
-void ODrivePidController::get_joint_states() {
-  for (auto& joint : joints) {
-    const auto position_op = state_interfaces_[joint.id * 3].get_optional();
-    if (position_op.has_value()) {joint.position_state = position_op.value();}
-    const auto velocity_op = state_interfaces_[(joint.id * 3) + 1].get_optional();
-    if (velocity_op.has_value()) {joint.velocity_state = velocity_op.value();}
-    const auto effort_op = state_interfaces_[(joint.id * 3) + 2].get_optional();
-    if (effort_op.has_value()) {joint.effort_state = effort_op.value();}
-  }
-}
-void ODrivePidController::get_joint_references() {
-  auto reference_op = rt_buffer.try_get();
-  if (reference_op.has_value())
-  {
-    reference_msg = reference_op.value();
-    int i = 0;
-    for (std::string joint_name : reference_msg.joint_names) {
-      // search for joint with same name
-      auto it = std::find_if(joints.begin(), joints.end(), [&](const Joint& joint) {
-          return joint.name == joint_name;
-          });
-
-      // Check if the joint was found
-      if (it != joints.end()) {
-        // loop through interfaces
-        int a = 0;
-        for (std::string interface_name : reference_msg.interface_values[i].interface_names) {
-          // check if interface name is recognized
-          it->position_reference = std::numeric_limits<double>::quiet_NaN();
-          it->velocity_reference = std::numeric_limits<double>::quiet_NaN();
-          it->effort_reference = std::numeric_limits<double>::quiet_NaN();
-          if (reference_msg.interface_values[i].interface_names[a] == "position") {
-            it->position_reference = reference_msg.interface_values[i].values[a];
-          } else if (reference_msg.interface_values[i].interface_names[a] == "velocity") {
-            it->velocity_reference = reference_msg.interface_values[i].values[a];
-          } else if (reference_msg.interface_values[i].interface_names[a] == "effort") {
-            it->effort_reference = reference_msg.interface_values[i].values[a];
-          } else {
-            RCLCPP_ERROR(rclcpp::get_logger("ODrivePidController"), "Wrong type of command interface! Expected 'position' Got '%s'", reference_msg.interface_values[i].interface_names[a].c_str());
-          }
-          a++;
+  ////////////////////// on_activate /////////////////////////
+  controller_interface::CallbackReturn ODrivePidController::on_activate(const rclcpp_lifecycle::State &) {
+    // Loop through joints
+    for (auto & joint : joints) {
+      // assign state interfaces
+      for (auto & state_interface : state_interfaces_) {
+        if (state_interface.get_interface_name() == "position" && state_interface.get_prefix_name() == joint.name) {
+          joint.position_state_handle = &state_interface;
+        } else if (state_interface.get_interface_name() == "velocity" && state_interface.get_prefix_name() == joint.name) {
+          joint.velocity_state_handle = &state_interface;
         }
-      } else {
-        RCLCPP_ERROR(rclcpp::get_logger("ODrivePidController"), "Joint of name '%s' not recognized!", joint_name.c_str());
       }
-      i++;
+      // assign command interfaces
+      for (auto & command_interface : command_interfaces_) {
+        if (command_interface.get_interface_name() == "effort" && command_interface.get_prefix_name() == joint.name) {
+          joint.effort_cmd_handle = &command_interface;
+        }
+      }
+      // get initial reference value
+      auto position_state_opt = joint.position_state_handle->get_optional();
+      while (!position_state_opt.has_value());
+      joint.position_reference = position_state_opt.value();
     }
+    return CallbackReturn::SUCCESS;
   }
-}
 
+  ////////////////////// update /////////////////////////
+  controller_interface::return_type ODrivePidController::update(const rclcpp::Time & /*time*/, const rclcpp::Duration & period){
+    // Update references from latest msg
+    auto reference_op = rt_buffer.try_get();
+    if (reference_op.has_value())
+    {
+      MultiDOFCommand reference_msg = reference_op.value();
+      int i = 0;
+      for (std::string dof_names : reference_msg.dof_names) {
+        // search for joint with same name
+        auto it = std::find_if(joints.begin(), joints.end(), [&](const Joint& joint) {
+            return joint.name == dof_names;
+            });
+        // Check if the joint was found
+        if (it != joints.end()) {
+          it->position_reference = reference_msg.values[i];
+        } else {
+          RCLCPP_WARN(rclcpp::get_logger("ODrivePidController"), "Joint of name '%s' not recognized!", dof_names.c_str());
+        }
+        i++;
+      }
+    }
+    // loop through joints
+    for (auto& joint : joints) {
+      // get current states from harware
+      if (!joint.position_state_handle || !joint.velocity_state_handle || !joint.effort_cmd_handle) {
+        continue; 
+      }
+      auto position_state_opt = joint.position_state_handle->get_optional();
+      auto velocity_state_opt = joint.velocity_state_handle->get_optional();
+
+      if (position_state_opt.has_value() && velocity_state_opt.has_value()) {
+        // get current states
+        double position_state = position_state_opt.value();
+        double velocity_state = velocity_state_opt.value();
+        // calculate pid output
+        double position_error = joint.position_reference - position_state;
+        double temp_output = joint.position_pid->compute_command(position_error, period);
+        double velocity_error = temp_output - velocity_state;
+        double effort_command = joint.velocity_pid->compute_command(velocity_error, period);
+        // write effort value
+        if (!joint.effort_cmd_handle->set_value(effort_command)) {
+          RCLCPP_WARN(rclcpp::get_logger("ODrivePidController"), "Failed to set effort command interface value for joint '%s'", joint.name.c_str());
+        }
+      }
+    }
+    return controller_interface::return_type::OK;
+  }
+
+  ////////////////////// on_deactivate /////////////////////////
+  controller_interface::CallbackReturn ODrivePidController::on_deactivate(const rclcpp_lifecycle::State &) {
+    return CallbackReturn::SUCCESS;
+  }
+
+  ////////////////////// command_interface_configuration /////////////////////////
+  controller_interface::InterfaceConfiguration ODrivePidController::command_interface_configuration() const {
+    controller_interface::InterfaceConfiguration command_interfaces_config;
+    command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+    std::vector<std::string> names_;
+    for (const auto& joint : joints) {
+      names_.push_back(joint.name + "/effort");
+    }
+    command_interfaces_config.names = names_;
+    return command_interfaces_config;
+  }
+
+  ////////////////////// state_interface_configuration /////////////////////////
+  controller_interface::InterfaceConfiguration ODrivePidController::state_interface_configuration() const {
+    controller_interface::InterfaceConfiguration state_interfaces_config;
+    state_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+    std::vector<std::string> names_;
+    for (const auto& joint : joints) {
+      names_.push_back(joint.name + "/position");
+      names_.push_back(joint.name + "/velocity");
+    }
+    state_interfaces_config.names = names_;
+    return state_interfaces_config;
+  }
 }  // namespace odrive_pid_controller
 
 #include "pluginlib/class_list_macros.hpp"
