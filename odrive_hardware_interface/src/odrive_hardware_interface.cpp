@@ -7,7 +7,6 @@ namespace odrive_hardware_interface
     if (hardware_interface::SystemInterface::on_init(params) != hardware_interface::CallbackReturn::SUCCESS) {
       return hardware_interface::CallbackReturn::ERROR;
     }
-
     // Load hardware interface parameters
     can_interface_name_ = info_.hardware_parameters["can_interface"];
     if (can_interface_name_ != "") {
@@ -16,17 +15,15 @@ namespace odrive_hardware_interface
       RCLCPP_ERROR(rclcpp::get_logger("ODriveHardwareInterface"), "[INIT] No can interface provided!");
       return hardware_interface::CallbackReturn::FAILURE;
     }
-
     // Iterate through joints
     for (const auto & joint_info : info_.joints) {
       try {
-        joints_.emplace_back(joint_info); 
+        joints_.emplace_back(joint_info); // create joint object from parameters
       } catch (const std::exception & e) {
         RCLCPP_ERROR(rclcpp::get_logger("ODriveHardwareInterface"), "[INIT] Failed to initialize joint: %s", e.what());
         return hardware_interface::CallbackReturn::ERROR;
       }
     }
-
     return hardware_interface::CallbackReturn::SUCCESS;
   }
 
@@ -52,7 +49,6 @@ namespace odrive_hardware_interface
     // clear all errors
     clear_all_errors();
     RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[CONFIGURE] Cleared all errors");
-
     // write parameters
     for (auto& joint : joints_) {
       joint.set_motor_limits();
@@ -60,7 +56,6 @@ namespace odrive_hardware_interface
       joint.set_gains();
     }
     RCLCPP_INFO(rclcpp::get_logger("ODriveHardwareInterface"), "[CONFIGURE] Succesfully set parameters");
-
     return hardware_interface::CallbackReturn::SUCCESS;
   }
 
@@ -117,7 +112,6 @@ namespace odrive_hardware_interface
         return hardware_interface::return_type::OK;
       }
     }
-
     // Request Torques and Encoder Estimates
     for (auto &joint : joints_) {
       Get_Torques_msg_t get_torques_msg;
@@ -205,7 +199,7 @@ namespace odrive_hardware_interface
 
   // --- prepare_command_mode_switch ---
   hardware_interface::return_type ODriveHardwareInterface::prepare_command_mode_switch(const std::vector<std::string> & /*start_interfaces*/, const std::vector<std::string> & /*stop_interfaces*/) {
-    // Because any invalid interface combination gracefully maps to Modes::IDLE,
+    // No checks needed because any invalid interface combination gracefully maps to Modes::IDLE,
     return hardware_interface::return_type::OK;
   }
 
