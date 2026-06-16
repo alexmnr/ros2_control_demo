@@ -98,6 +98,7 @@ def launch_setup(context):
 
     controllers_active = [
         "joint_state_broadcaster",
+        "odrive_pid_controller",
     ]
     controllers_inactive = [
         "torque_passthrough_controller",
@@ -106,6 +107,8 @@ def launch_setup(context):
         "position_trajectory_controller",
         "position_filtered_controller",
         "position_passthrough_controller",
+        "velocity_pid_controller",
+        "position_pid_controller",
     ]
 
     nodes.append(controller_spawner(controllers_active, True))

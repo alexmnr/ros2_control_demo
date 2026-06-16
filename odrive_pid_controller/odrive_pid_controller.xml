@@ -1,0 +1,9 @@
+<library path="odrive_pid_controller">
+  <class name="odrive_pid_controller/ODrivePidController"
+         type="odrive_pid_controller::ODrivePidController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Nested PID controller for ODrive S1.
+    </description>
+  </class>
+</library>

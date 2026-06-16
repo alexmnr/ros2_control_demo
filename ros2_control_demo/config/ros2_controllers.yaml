@@ -23,6 +23,15 @@
     position_passthrough_controller:
       type: forward_command_controller/MultiInterfaceForwardCommandController
 
+    position_pid_controller:
+      type: pid_controller/PidController
+
+    velocity_pid_controller:
+      type: pid_controller/PidController
+
+    odrive_pid_controller:
+      type: odrive_pid_controller/ODrivePidController
+
 /**/torque_passthrough_controller:
   ros__parameters:
     joints:
@@ -62,3 +71,52 @@
      - position
      - velocity
      - effort
+
+# Outer PID Loop: Position PID Controller
+position_pid_controller:
+  ros__parameters:
+    dof_names:
+      - velocity_pid_controller/$(var tf_prefix)joint_1
+    command_interface: velocity
+    reference_and_state_interfaces:
+      - position
+    reference_and_state_dof_names:
+      - $(var tf_prefix)joint_1
+    set_current_state_as_first_setpoint: true
+    gains:
+      "velocity_pid_controller/$(var tf_prefix)joint_1":
+        p: 30.0
+        i: 0.0
+        d: 0.0
+        u_clamp_max: 50.0   
+        u_clamp_min: -50.0
+        antiwindup_strategy: "none"
+
+# Inner PID Loop: Velocity PID Controller
+velocity_pid_controller:
+  ros__parameters:
+    dof_names:
+      - $(var tf_prefix)joint_1
+    command_interface: effort
+    reference_and_state_interfaces:
+      - velocity
+    set_current_state_as_first_setpoint: true
+    gains:
+      $(var tf_prefix)joint_1:
+        p: 0.02
+        i: 0.4
+        d: 0.0
+        u_clamp_max: 40.0  # Limits maximum effort/torque sent to the hardware (Nm or N)
+        u_clamp_min: -40.0
+        antiwindup_strategy: "none"
+
+# Custom Controller
+odrive_pid_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)joint_1
+    gains:
+      $(var tf_prefix)joint_1: {
+        "position_p": 30.0, "position_i": 0.0, "position_d": 0.0, "position_output_min:": -50.0, "position_output_max:": 50.0,
+        "velocity_p": 0.20, "velocity_i": 4.0, "velocity_d": 0.0, "velocity_output_min:": -.inf, "velocity_output_max:": .inf,
+      }
