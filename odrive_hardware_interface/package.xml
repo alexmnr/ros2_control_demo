@@ -9,9 +9,10 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- <depend>ros2_control</depend> -->
-  <!-- <depend>ros2_control_cmake</depend> -->
-  <!-- <depend>xacro</depend> -->
+  <depend>xacro</depend>
+  <depend>rclcpp</depend>
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
